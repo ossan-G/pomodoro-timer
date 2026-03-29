@@ -1,0 +1,9 @@
+function doPost(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var data = JSON.parse(e.postData.contents);
+  
+  // A列に日時、B列に累計セット数を追記
+  sheet.appendRow([data.timestamp, data.sets]);
+  
+  return ContentService.createTextOutput("Success");
+}

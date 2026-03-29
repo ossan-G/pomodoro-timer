@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ポモドーロタイマー</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-800 text-white flex items-center justify-center min-h-screen">
+
+    <div class="bg-slate-700 p-8 rounded-2xl shadow-2xl w-full max-w-sm text-center">
+        <h1 class="text-2xl font-bold mb-6 text-slate-300" id="mode-text">作業中 (25分)</h1>
+        
+        <div class="text-6xl font-mono font-semibold mb-8 tracking-wider" id="time-display">
+            25:00
+        </div>
+
+        <button id="main-btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-4 px-6 rounded-xl text-xl transition-colors duration-200">
+            スタート
+        </button>
+
+        <!-- 音量調節スライダー -->
+        <div class="mt-6 flex items-center justify-between text-slate-400">
+            <span class="text-sm">BGM音量</span>
+            <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="0.5" class="w-2/3 cursor-pointer">
+        </div>
+
+        <p class="mt-6 text-sm text-slate-400">
+            今日完了したセット数: <span id="set-count" class="font-bold text-white text-lg">0</span>
+        </p>
+    </div>
+
+    <!-- BGM用のオーディオ要素 -->
+    <audio id="bgm1" src="bgm1.mp3" loop></audio>
+    <audio id="bgm2" src="bgm2.mp3" loop></audio>
+
+    <script>
+        // --- 設定 ---
+        const WORK_TIME = 25 * 60; // 25分（秒）
+        const BREAK_TIME = 5 * 60;  // 5分（秒）
+        
+        // GASで発行したウェブアプリのURLをここに貼り付ける
+        const GAS_URL = ''; 
+
+        // --- 状態管理 ---
+        let timeLeft = WORK_TIME;
+        let timerId = null;
+        let isRunning = false;
+        let isPaused = false;
+        let isWorkMode = true;
+        let completedSets = 0;
+
+        // --- DOM要素 ---
+        const timeDisplay = document.getElementById('time-display');
+        const mainBtn = document.getElementById('main-btn');
+        const modeText = document.getElementById('mode-text');
+        const setCountDisplay = document.getElementById('set-count');
+        const bgm1 = document.getElementById('bgm1');
+        const bgm2 = document.getElementById('bgm2');
+        const volumeSlider = document.getElementById('volume-slider');
+
+        // --- BGMの初期音量設定 ---
+        bgm1.volume = volumeSlider.value;
+        bgm2.volume = volumeSlider.value;
+
+        // --- タイマーの表示更新 ---
+        function updateDisplay() {
+            const minutes = Math.floor(timeLeft / 60);
+            const seconds = timeLeft % 60;
+            timeDisplay.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
+
+        // --- ボタンのUI更新 ---
+        function updateButtonUI() {
+            if (isRunning) {
+                mainBtn.textContent = 'ストップ';
+                mainBtn.className = "w-full bg-red-500 hover:bg-red-600 text-white font-bold py-4 px-6 rounded-xl text-xl transition-colors duration-200";
+            } else if (isPaused) {
+                mainBtn.textContent = '再スタート';
+                mainBtn.className = "w-full bg-green-500 hover:bg-green-600 text-white font-bold py-4 px-6 rounded-xl text-xl transition-colors duration-200";
+            } else {
+                mainBtn.textContent = 'スタート';
+                mainBtn.className = "w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-4 px-6 rounded-xl text-xl transition-colors duration-200";
+            }
+        }
+
+        // --- タイマーのロジック ---
+        function startTimer() {
+            isRunning = true;
+            isPaused = false;
+            updateButtonUI();
+
+            if (isWorkMode) {
+                bgm1.play().catch(e => console.log("BGM1再生エラー", e));
+            } else {
+                bgm2.play().catch(e => console.log("BGM2再生エラー", e));
+            }
+
+            timerId = setInterval(() => {
+                timeLeft--;
+                updateDisplay();
+
+                if (timeLeft <= 0) {
+                    clearInterval(timerId);
+                    handleTimerComplete();
+                }
+            }, 1000);
+        }
+
+        function stopTimer() {
+            clearInterval(timerId);
+            isRunning = false;
+            isPaused = true;
+            updateButtonUI();
+            bgm1.pause();
+            bgm2.pause();
+        }
+
+        // --- モード切替とデータ送信 ---
+        function handleTimerComplete() {
+            isRunning = false;
+            isPaused = false;
+            bgm1.pause();
+            bgm1.currentTime = 0;
+            bgm2.pause();
+            bgm2.currentTime = 0;
+
+            if (isWorkMode) {
+                completedSets++;
+                setCountDisplay.textContent = completedSets;
+                sendDataToGAS(); 
+
+                isWorkMode = false;
+                timeLeft = BREAK_TIME;
+                modeText.textContent = "休憩中 (5分)";
+            } else {
+                isWorkMode = true;
+                timeLeft = WORK_TIME;
+                modeText.textContent = "作業中 (25分)";
+            }
+            
+            updateDisplay();
+            updateButtonUI();
+        }
+
+        // --- 日本時間のフォーマット生成関数 ---
+        function getFormattedJapanTime() {
+            const now = new Date();
+            const y = now.getFullYear();
+            const m = String(now.getMonth() + 1).padStart(2, '0');
+            const d = String(now.getDate()).padStart(2, '0');
+            const h = String(now.getHours()).padStart(2, '0');
+            const min = String(now.getMinutes()).padStart(2, '0');
+            const s = String(now.getSeconds()).padStart(2, '0');
+            return `${y}/${m}/${d} ${h}:${min}:${s}`;
+        }
+
+        // --- GASへのデータ送信処理 ---
+        function sendDataToGAS() {
+            if (!GAS_URL) {
+                console.log("GAS_URLが設定されていないため、データ送信をスキップしました。");
+                return;
+            }
+
+            const data = {
+                // toISOString() を独自関数に置き換え
+                timestamp: getFormattedJapanTime(),
+                sets: completedSets
+            };
+
+            fetch(GAS_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            }).then(() => {
+                console.log("GASへのデータ送信リクエスト完了");
+            }).catch(error => {
+                console.error("GASへの送信エラー:", error);
+            });
+        }
+
+        // --- イベントリスナー ---
+        mainBtn.addEventListener('click', () => {
+            if (isRunning) {
+                stopTimer();
+            } else {
+                startTimer();
+            }
+        });
+
+        // スライダーの入力検知で音量をリアルタイム変更
+        volumeSlider.addEventListener('input', (e) => {
+            bgm1.volume = e.target.value;
+            bgm2.volume = e.target.value;
+        });
+
+        // 初期表示
+        updateDisplay();
+    </script>
+</body>
+</html>
